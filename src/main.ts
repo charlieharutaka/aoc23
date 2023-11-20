@@ -3,8 +3,6 @@ import fragmentCode from './shaders/fragment.wgsl?raw'
 
 //#region Days of AoC
 
-import day0Code from './shaders/day0.compute.wgsl?raw'
-
 //#endregion
 
 // stupid mesh + colors
