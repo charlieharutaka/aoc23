@@ -52,12 +52,6 @@ function pad<T>(array: T[], length: number, value: T): T[] {
   return array.concat(new Array(length - array.length).fill(value))
 }
 
-function padToMultiple<T>(array: T[], n: number, value: T): T[] {
-  // find the least multiple of n larger than array.length
-  const length = Math.ceil(array.length / n) * n
-  return pad(array, length, value)
-}
-
 type VertexBuffers = Readonly<{
   buffers: GPUBuffer[]
   bufferLayouts: GPUVertexBufferLayout[]
