@@ -1,15 +1,12 @@
-import vertexCode from './shaders/vertex.wgsl?raw'
 import fragmentCode from './shaders/fragment.wgsl?raw'
+import vertexCode from './shaders/vertex.wgsl?raw'
 
 //#region Days of AoC
 
-import day0Code from './shaders/day0.compute.wgsl?raw'
+import { Solution } from './modules/day'
+import day0 from './modules/day-0'
 
-//#endregion
-
-const constants = {
-  WORKGROUP_SIZE: 4,
-}
+day0
 
 // stupid mesh + colors
 const mesh = {
@@ -33,23 +30,6 @@ const mesh = {
     [0.49, 0.215, 0.258, 1],
     [0.168, 0.035, 0.282, 1],
   ],
-}
-
-function preprocessor(code: string, replacements: Record<string, any>): string {
-  const re = /\$<(?<key>[a-zA-Z0-9_]*)>/
-  let array: RegExpExecArray | null = null
-  while ((array = re.exec(code))) {
-    const key = array.groups?.['key']
-    if (key) {
-      code = code.replace(re, replacements[key])
-    }
-  }
-  return code
-}
-
-function pad<T>(array: T[], length: number, value: T): T[] {
-  if (array.length > length) return array.slice(0, length)
-  return array.concat(new Array(length - array.length).fill(value))
 }
 
 type VertexBuffers = Readonly<{
@@ -229,168 +209,14 @@ function render(
   device.queue.submit([encoder.finish()])
 }
 
-type ComputeBuffers = {
-  input: GPUBuffer // <- @binding(0)
-  output: GPUBuffer // <- @binding(1)
-  scratchpads: GPUBuffer[] // <- @binding(n + 2)
-  read: GPUBuffer
-}
-function initComputeBuffers({
-  device,
-  data,
-  numScratchpads = 0,
-}: {
-  device: GPUDevice
-  data: Float32Array
-  numScratchpads?: number
-}): ComputeBuffers {
-  // input data buffer
-  const inputBuffer = device.createBuffer({
-    label: 'Input buffer',
-    size: data.byteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  })
-
-  // blank buffer, output to be read from here
-  const outputBuffer = device.createBuffer({
-    label: 'Workgroup buffer',
-    size: data.byteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-  })
-
-  // scratchpad buffers of the size of the data
-  const scratchpadBuffers = Array(numScratchpads)
-    .fill(null)
-    .map((_, i) =>
-      device.createBuffer({
-        label: `Scratchpad buffer (${i})`,
-        size: data.byteLength,
-        usage: GPUBufferUsage.STORAGE,
-      }),
-    )
-
-  // JS can read this buffer
-  const readBuffer = device.createBuffer({
-    label: 'Read buffer',
-    size: data.byteLength,
-    usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-  })
-
-  device.queue.writeBuffer(inputBuffer, 0, data)
-
-  return {
-    input: inputBuffer,
-    output: outputBuffer,
-    scratchpads: scratchpadBuffers,
-    read: readBuffer,
+function getDay(): Solution {
+  const select = document.getElementById('day-select') as HTMLSelectElement
+  switch (select.value) {
+    case '0':
+      return day0
+    default:
+      throw new Error('No solution given')
   }
-}
-
-type ComputeBindings = {
-  bindGroup: GPUBindGroup
-  layout: GPUBindGroupLayout
-}
-function initComputeBindings({ device, buffers }: { device: GPUDevice; buffers: ComputeBuffers }): ComputeBindings {
-  const layout = device.createBindGroupLayout({
-    label: 'Compute bind group layout',
-    entries: [
-      {
-        binding: 0,
-        buffer: { type: 'read-only-storage' },
-        visibility: GPUShaderStage.COMPUTE,
-      },
-      {
-        binding: 1,
-        buffer: { type: 'storage' },
-        visibility: GPUShaderStage.COMPUTE,
-      },
-    ],
-  })
-
-  const bindGroup = device.createBindGroup({
-    label: 'Compute bind group',
-    layout,
-    entries: [
-      {
-        binding: 0,
-        resource: { buffer: buffers.input, label: 'Input buffer' },
-      },
-      {
-        binding: 1,
-        resource: { buffer: buffers.output, label: 'Output buffer' },
-      },
-    ],
-  })
-
-  return {
-    layout,
-    bindGroup,
-  }
-}
-
-function initComputeModule({ device, code }: { device: GPUDevice; code: string }): GPUShaderModule {
-  return device.createShaderModule({
-    label: 'Compute module',
-    code,
-  })
-}
-
-function initComputePipeline({
-  device,
-  module,
-  bindings,
-}: {
-  device: GPUDevice
-  module: GPUShaderModule
-  bindings: ComputeBindings
-}): GPUComputePipeline {
-  const pipelineLayout = device.createPipelineLayout({
-    label: 'Compute pipeline layout',
-    bindGroupLayouts: [bindings.layout],
-  })
-
-  return device.createComputePipeline({
-    label: 'Compute pipeline',
-    layout: pipelineLayout,
-    compute: {
-      module,
-      entryPoint: 'main',
-    },
-  })
-}
-
-function compute({
-  device,
-  buffers,
-  bindings,
-  pipeline,
-  numWorkgroups,
-}: {
-  device: GPUDevice
-  buffers: ComputeBuffers
-  bindings: ComputeBindings
-  pipeline: GPUComputePipeline
-  numWorkgroups: number
-}) {
-  const encoder = device.createCommandEncoder()
-  const pass = encoder.beginComputePass({ label: 'Compute pass' })
-
-  pass.setPipeline(pipeline)
-  pass.setBindGroup(0, bindings.bindGroup)
-  pass.dispatchWorkgroups(numWorkgroups, 1, 1)
-  pass.end()
-
-  // copy the output back to input + read
-  encoder.copyBufferToBuffer(buffers.output, 0, buffers.read, 0, buffers.read.size)
-  encoder.copyBufferToBuffer(buffers.output, 0, buffers.input, 0, buffers.input.size)
-  encoder.clearBuffer(buffers.output)
-
-  device.queue.submit([encoder.finish()])
-}
-
-async function readFromBuffer({ buffers }: { buffers: ComputeBuffers }): Promise<Float32Array> {
-  await buffers.read.mapAsync(GPUMapMode.READ)
-  return new Float32Array(buffers.read.getMappedRange())
 }
 
 await (async function main() {
@@ -433,34 +259,17 @@ await (async function main() {
 
     if (!device) throw new Error('No device')
 
-    const code = preprocessor(day0Code, constants)
-
     const rawData = (document.getElementById('input') as HTMLTextAreaElement | undefined)?.value
     if (!rawData) throw new Error('Could not get data')
-    // Try parse into numbers
-    const data = rawData.split('\n').map(Number)
-    const paddedSize = Math.ceil(data.length / constants.WORKGROUP_SIZE) * constants.WORKGROUP_SIZE
-    const dataArray = Float32Array.from(pad(data, paddedSize, 0))
 
-    const buffers = initComputeBuffers({ device, data: dataArray, numScratchpads: 0 })
-    const module = initComputeModule({ device, code })
-    const bindings = initComputeBindings({ device, buffers })
-    const pipeline = initComputePipeline({ device, module, bindings })
+    const solution = getDay()
+    const result = await solution(device, rawData)
 
-    let elements = paddedSize
-    while (elements > 1) {
-      const numWorkgroups = Math.ceil(elements / constants.WORKGROUP_SIZE)
-      compute({ device, bindings, buffers, pipeline, numWorkgroups })
-      elements = numWorkgroups
-    }
-
-    const result = await readFromBuffer({ buffers })
-    console.log(result)
     const end = performance.now()
 
     const output = document.getElementById('output') as HTMLInputElement
     if (output) {
-      output.value = `${result[0]}`
+      output.value = `${result}`
     }
 
     const runtime = document.getElementById('runtime') as HTMLInputElement
