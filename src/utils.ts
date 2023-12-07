@@ -15,6 +15,11 @@ export function pad<T>(array: T[], length: number, value: T): T[] {
   return array.concat(new Array(length - array.length).fill(value))
 }
 
+// Rounds `n` to the least power of 2 greater than it.
+export function pow2round(n: number): number {
+  return 2 ** Math.ceil(Math.log2(n))
+}
+
 export async function readFromBuffer(buffer: GPUBuffer): Promise<Float32Array> {
   await buffer.mapAsync(GPUMapMode.READ)
   return new Float32Array(buffer.getMappedRange())
